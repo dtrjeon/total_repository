@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0969da">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>dtrjeon 저장소</title>
+<style>
+  :root{--bg:#f2f4f7;--card:#fff;--text:#1f2328;--sub:#656d76;--line:#e1e5ea;--accent:#0969da;--pages:#1a7f37;--chip:#e8edf3}
+  @media (prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b22;--text:#e6edf3;--sub:#8b949e;--line:#30363d;--accent:#58a6ff;--pages:#3fb950;--chip:#21262d}}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;line-height:1.45;padding-bottom:env(safe-area-inset-bottom)}
+  header{position:sticky;top:0;z-index:10;background:var(--bg);padding:calc(10px + env(safe-area-inset-top)) 16px 8px;border-bottom:1px solid var(--line)}
+  .top{display:flex;align-items:center;justify-content:space-between}
+  h1{font-size:18px;margin:0}
+  .count{font-size:12px;color:var(--sub)}
+  #refresh{width:40px;height:40px;border:none;border-radius:50%;background:var(--chip);color:var(--text);font-size:18px}
+  #refresh.spin{animation:s .8s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  #q{width:100%;margin:8px 0;padding:12px 14px;font-size:16px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--text);-webkit-appearance:none}
+  .chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:0 0 auto;padding:8px 14px;border:none;border-radius:999px;background:var(--chip);color:var(--text);font-size:14px;min-height:36px}
+  .chip.on{background:var(--accent);color:#fff}
+  main{padding:12px 16px 24px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+  .name{font-weight:600;font-size:16px;word-break:break-all}
+  .ko{display:inline-block;margin-left:8px;font-size:14px;font-weight:600;color:var(--accent);word-break:keep-all}
+  .desc{color:var(--sub);font-size:13px;margin-top:2px}
+  .date{color:var(--sub);font-size:12px;margin-top:4px}
+  .links{display:flex;gap:8px;margin-top:10px}
+  .links a{flex:1;text-align:center;padding:12px 8px;min-height:44px;border-radius:10px;font-size:14px;font-weight:500;text-decoration:none;border:1px solid var(--line);color:var(--accent);background:var(--card)}
+  .links a.pages{background:var(--pages);border-color:var(--pages);color:#fff}
+  .links a:active{opacity:.7}
+  .msg{text-align:center;color:var(--sub);padding:32px 8px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div>
+      <h1>📚 dtrjeon 저장소</h1>
+      <div class="count" id="meta">불러오는 중…</div>
+    </div>
+    <button id="refresh" aria-label="새로고침">↻</button>
+  </div>
+  <input type="search" id="q" placeholder="저장소 검색" autocomplete="off" autocapitalize="off">
+  <div class="chips" id="chips">
+    <button class="chip on" data-s="pushed">최근 업데이트</button>
+    <button class="chip" data-s="created">최근 생성</button>
+    <button class="chip" data-s="name">이름순</button>
+    <button class="chip" data-f="pages">웹페이지만</button>
+  </div>
+</header>
+<main id="list"></main>
+<script>
+const USER = 'dtrjeon';
+const CACHE_KEY = 'repos_' + USER;
+const CACHE_MS = 5 * 60 * 1000;
+// 한글 이름 사전: 저장소 이름(소문자) -> 한글 이름. 새 저장소는 여기에 한 줄 추가하세요.
+const KO = {
+  'math_practices': '수학 문제지 학습 허브',
+  '62th_assignment': '62기 조편성 개인별 비용표',
+  'jee_meeting': '62기 스탭 운영 계획',
+  'speech_check': '복음제시 암송 연습',
+  'test_justee62': '62기 수주반 보고서',
+  'dtrjeon.github.io': '메인 홈페이지',
+  'univ_find': '수지구 고교 교과과목 비교'
+};
+// 이름에 키워드가 들어 있으면 적용되는 규칙 (사전에 없을 때)
+const KO_RULES = [
+  ['justee', '수주반 보고서'], ['staff', '스텝현황'], ['booking', '전폭사무실 예약'],
+  ['voca', '단어노트'], ['barcode', '바코드 스캐너'], ['receipt', '영수증 정리'],
+  ['flight', '항공권 최저가'], ['prayer', '기도회 신청'], ['checklist', '체크리스트'],
+  ['guidebook', '길라잡이'], ['interview', '인터뷰'], ['cost', '개인별 비용표'],
+  ['met20', '선교여행 관리'], ['portfolio', '포트폴리오'], ['math', '수학']
+];
+function koName(r) {
+  const n = r.name.toLowerCase();
+  if (KO[n]) return KO[n];
+  for (const [k, v] of KO_RULES) if (n.includes(k)) return v;
+  return /[가-힣]/.test(r.description || '') ? r.description : '';
+}
+let repos = [], sort = 'pushed', onlyPages = false;
+
+async function fetchAll() {
+  let all = [], page = 1;
+  while (true) {
+    const r = await fetch(`https://api.github.com/users/${USER}/repos?per_page=100&page=${page}`);
+    if (!r.ok) throw new Error('GitHub API 오류 (' + r.status + ')');
+    const data = await r.json();
+    all = all.concat(data);
+    if (data.length < 100) break;
+    page++;
+  }
+  return all;
+}
+
+async function load(force) {
+  const btn = document.getElementById('refresh');
+  try {
+    if (!force) {
+      try {
+        const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+        if (c && Date.now() - c.t < CACHE_MS) { repos = c.d; render(); return; }
+      } catch (e) {}
+    }
+    btn.classList.add('spin');
+    repos = await fetchAll();
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), d: repos })); } catch (e) {}
+    render();
+  } catch (e) {
+    document.getElementById('list').innerHTML = `<div class="msg">목록을 불러오지 못했습니다.<br>${esc(e.message)}<br>↻ 버튼으로 다시 시도해 주세요.</div>`;
+    document.getElementById('meta').textContent = '';
+  } finally { btn.classList.remove('spin'); }
+}
+
+function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function pagesUrl(r) {
+  if (!r.has_pages) return null;
+  if (r.name.toLowerCase() === USER.toLowerCase() + '.github.io') return `https://${USER}.github.io/`;
+  return `https://${USER}.github.io/${r.name}/`;
+}
+
+function render() {
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  let list = repos.filter(r =>
+    (!q || r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q) || koName(r).includes(q)) &&
+    (!onlyPages || r.has_pages));
+  list.sort((a, b) => {
+    if (sort === 'name') return a.name.localeCompare(b.name);
+    const k = sort === 'created' ? 'created_at' : 'pushed_at';
+    return new Date(b[k]) - new Date(a[k]);
+  });
+  document.getElementById('meta').textContent = `전체 ${repos.length}개` + (list.length !== repos.length ? ` · 표시 ${list.length}개` : '');
+  document.getElementById('list').innerHTML = list.length ? list.map(r => {
+    const p = pagesUrl(r);
+    return `<div class="card">
+      <div class="name">${esc(r.name)}${koName(r) ? `<span class="ko">${esc(koName(r))}</span>` : ''}</div>
+      ${r.description && r.description !== koName(r) ? `<div class="desc">${esc(r.description)}</div>` : ''}
+      <div class="date">업데이트 ${new Date(r.pushed_at).toLocaleDateString('ko-KR')}</div>
+      <div class="links">
+        ${p ? `<a class="pages" href="${p}" target="_blank" rel="noopener">웹페이지 열기</a>` : ''}
+        <a href="${r.html_url}" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>`;
+  }).join('') : '<div class="msg">검색 결과가 없습니다.</div>';
+}
+
+document.getElementById('q').addEventListener('input', render);
+document.getElementById('refresh').addEventListener('click', () => load(true));
+document.getElementById('chips').addEventListener('click', e => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  if (b.dataset.s) {
+    sort = b.dataset.s;
+    document.querySelectorAll('.chip[data-s]').forEach(c => c.classList.toggle('on', c === b));
+  } else {
+    onlyPages = !onlyPages;
+    b.classList.toggle('on', onlyPages);
+  }
+  render();
+});
+load(false);
+</script>
+</body>
+</html>
