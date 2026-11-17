@@ -146,6 +146,13 @@
       <button id="tk-del">토큰 삭제</button>
       <button class="pri" id="tk-save">토큰 저장</button>
     </div>
+    <div id="pend-box" hidden>
+      <div class="sep"></div>
+      <label>☁ GitHub에 아직 올라가지 않은 주석</label>
+      <div class="memo" id="pend-list"></div>
+      <div class="hint">토큰을 저장하면 위 내용이 GitHub에 올라갑니다. 필요 없는 변경이면 아래 버튼으로 GitHub 값으로 되돌릴 수 있습니다.</div>
+      <div class="row"><button id="pend-reset">GitHub 값으로 되돌리기</button></div>
+    </div>
     <div class="sep"></div>
     <label for="io">한글 주석 백업 / 복원</label>
     <textarea id="io" placeholder="내보내기를 누르면 JSON이 여기에 표시됩니다. 다른 기기에서는 여기에 붙여넣고 가져오기를 누르세요."></textarea>
@@ -161,8 +168,8 @@
 <div id="toast"></div>
 
 <script>
-// 버전: 기능을 바꿀 때마다 올립니다. (1.0 최초 / 1.1 GitHub 주석 동기화 / 1.2 대기 표시 수정·버전 표시)
-const APP_VERSION = '1.2.0', APP_DATE = '2026-11-17';
+// 버전: 기능을 바꿀 때마다 올립니다. (1.0 최초 / 1.1 GitHub 주석 동기화 / 1.2 대기 표시 수정·버전 표시 / 1.3 대기 주석 목록·되돌리기)
+const APP_VERSION = '1.3.0', APP_DATE = '2026-11-17';
 const USER = 'dtrjeon';
 const CACHE_KEY = 'repos_' + USER;
 const NOTE_KEY = 'notes_' + USER;
@@ -428,7 +435,15 @@ function tokenState() {
   const t = getToken();
   $('tk-state').textContent = t ? `✓ 토큰 저장됨 (…${t.slice(-4)})` : '토큰이 없습니다. 삭제 기능을 쓰려면 등록하세요.';
 }
-function openSettings() { $('set-ver').textContent = `저장소 허브 v${APP_VERSION} (${APP_DATE})`; $('tk').value = ''; $('io').value = ''; tokenState(); openSheet('bg-set'); }
+function showPending() {
+  $('pend-box').hidden = !pending.length;
+  $('pend-list').textContent = pending.map(k => `${k} → ${notes[k] ? (notes[k].ko || '(한글 이름 없음)') + (notes[k].memo ? ' / 메모' : '') : '(삭제)'}`).join('\n');
+}
+function resetPending() {
+  if (!confirm('이 기기에서만 바꾼 주석을 버리고 GitHub 값으로 되돌릴까요?')) return;
+  pending = []; savePending(); pullNotes().then(() => { showPending(); toast('GitHub 값으로 되돌렸습니다'); });
+}
+function openSettings() { showPending(); $('set-ver').textContent = `저장소 허브 v${APP_VERSION} (${APP_DATE})`; $('tk').value = ''; $('io').value = ''; tokenState(); openSheet('bg-set'); }
 async function saveToken() {
   const t = $('tk').value.trim(); if (!t) { toast('토큰을 입력하세요'); return; }
   $('tk-state').textContent = '확인 중…';
@@ -490,6 +505,7 @@ $('tk-save').addEventListener('click', saveToken);
 $('tk-del').addEventListener('click', delToken);
 $('io-out').addEventListener('click', exportNotes);
 $('io-in').addEventListener('click', importNotes);
+$('pend-reset').addEventListener('click', resetPending);
 $('set-close').addEventListener('click', () => closeSheet('bg-set'));
 
 $('ver').textContent = `버전 v${APP_VERSION} · ${APP_DATE}`;
