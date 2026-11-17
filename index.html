@@ -239,6 +239,8 @@ function pullNotes() {
     try {
       const { data } = await getRemote();
       if (!synced) for (const k of Object.keys(notes)) if (!(k in data) && !pending.includes(k)) pending.push(k); // 최초 1회: 기존 로컬 주석을 올림
+      // 이미 GitHub 값과 같아진 대기 항목은 정리 (토큰 없이도 '대기' 표시가 사라짐)
+      pending = pending.filter(k => JSON.stringify(notes[k] || null) !== JSON.stringify(data[k] || null));
       const merged = { ...data };
       for (const k of pending) { if (notes[k]) merged[k] = notes[k]; else delete merged[k]; }
       notes = merged; saveNotes(); savePending();
