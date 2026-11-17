@@ -101,7 +101,7 @@
     <input id="ed-ko" maxlength="60" placeholder="예: 수학 문제지 학습 허브" autocomplete="off">
     <label for="ed-memo">메모 (선택)</label>
     <textarea id="ed-memo" maxlength="500" placeholder="이 저장소가 무엇인지 간단히 적어 두세요"></textarea>
-    <div class="hint">이 기기의 브라우저에 저장됩니다. 다른 기기로 옮기려면 ⚙ 설정의 내보내기/가져오기를 사용하세요.</div>
+    <div class="hint">토큰이 등록되어 있으면 저장 즉시 GitHub(notes.json)에도 저장되어 모든 기기에서 같은 주석이 보입니다. 토큰이 없으면 이 기기에만 저장됩니다.</div>
     <div class="row">
       <button id="ed-cancel">취소</button>
       <button id="ed-clear">지우기</button>
@@ -186,6 +186,80 @@ const KO_RULES = [
 function loadNotes() { try { return JSON.parse(localStorage.getItem(NOTE_KEY) || '{}') || {}; } catch (e) { return {}; } }
 let notes = loadNotes();
 function saveNotes() { try { localStorage.setItem(NOTE_KEY, JSON.stringify(notes)); } catch (e) { toast('저장 공간이 부족해 주석을 저장하지 못했습니다'); } }
+
+/* ---------- GitHub 동기화 (total_repository/notes.json) ---------- */
+const NOTES_URL = 'https://api.github.com/repos/dtrjeon/total_repository/contents/notes.json';
+const PEND_KEY = 'notes_pending_' + USER;
+const SYNCED_KEY = 'notes_synced_' + USER;
+let pending = (() => { try { return JSON.parse(localStorage.getItem(PEND_KEY) || '[]') || []; } catch (e) { return []; } })();
+let syncState = '', synced = false;
+try { synced = localStorage.getItem(SYNCED_KEY) === '1'; } catch (e) {}
+function savePending() { try { localStorage.setItem(PEND_KEY, JSON.stringify(pending)); } catch (e) {} }
+function b64enc(s) { let x = ''; for (const c of new TextEncoder().encode(s)) x += String.fromCharCode(c); return btoa(x); }
+function b64dec(s) { return new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), c => c.charCodeAt(0))); }
+function syncLabel() {
+  if (pending.length) return getToken() ? (syncState === 'err' ? ' · ☁✗ 동기화 실패' : ' · ☁ 동기화 중…') : ' · ☁ 대기(토큰 필요)';
+  return synced ? ' · ☁✓' : '';
+}
+let chain = Promise.resolve();
+function queue(fn) { chain = chain.then(fn, fn); return chain; }
+
+async function getRemote() {
+  const r = await fetch(NOTES_URL + '?t=' + Date.now(), { headers: ghHeaders(), cache: 'no-store' });
+  if (r.status === 404) return { data: {}, sha: null };
+  if (r.status === 401) throw new Error('토큰이 올바르지 않거나 만료되었습니다');
+  if (!r.ok) throw new Error('주석 불러오기 실패 (' + r.status + ')');
+  const j = await r.json();
+  let data = {}; try { data = JSON.parse(b64dec(j.content)) || {}; } catch (e) {}
+  return { data, sha: j.sha };
+}
+async function pushPending() {
+  const snap = {}; pending.forEach(k => { snap[k] = notes[k] ? JSON.stringify(notes[k]) : ''; });
+  for (let i = 0; i < 2; i++) {
+    const { data, sha } = await getRemote();
+    for (const k of Object.keys(snap)) { if (notes[k]) data[k] = notes[k]; else delete data[k]; }
+    const sorted = Object.fromEntries(Object.keys(data).sort().map(k => [k, data[k]]));
+    const body = { message: '한글 주석 업데이트 (' + Object.keys(snap).length + '건)', content: b64enc(JSON.stringify(sorted, null, 1) + '\n') };
+    if (sha) body.sha = sha;
+    const r = await fetch(NOTES_URL, { method: 'PUT', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.ok) {
+      pending = pending.filter(k => (notes[k] ? JSON.stringify(notes[k]) : '') !== snap[k]);
+      savePending(); return;
+    }
+    if (r.status === 409 || r.status === 422) continue; // 다른 기기에서 먼저 바뀜 → 다시 읽고 재시도
+    if (r.status === 401) throw new Error('토큰이 올바르지 않거나 만료되었습니다');
+    if (r.status === 403 || r.status === 404) throw new Error('GitHub 쓰기 권한이 없습니다 (토큰의 repo 권한 확인)');
+    throw new Error('동기화 실패 (' + r.status + ')');
+  }
+  throw new Error('동기화 충돌 - 잠시 후 다시 시도하세요');
+}
+// 원격 주석을 가져와 병합 (아직 올라가지 않은 로컬 변경은 보존)
+function pullNotes() {
+  return queue(async () => {
+    try {
+      const { data } = await getRemote();
+      if (!synced) for (const k of Object.keys(notes)) if (!(k in data) && !pending.includes(k)) pending.push(k); // 최초 1회: 기존 로컬 주석을 올림
+      const merged = { ...data };
+      for (const k of pending) { if (notes[k]) merged[k] = notes[k]; else delete merged[k]; }
+      notes = merged; saveNotes(); savePending();
+      synced = true; try { localStorage.setItem(SYNCED_KEY, '1'); } catch (e) {}
+      syncState = ''; render();
+      if (pending.length && getToken()) { await pushPending(); render(); toast('주석을 GitHub에 저장했습니다'); }
+    } catch (e) { syncState = 'err'; render(); }
+  });
+}
+function syncNow() {
+  return queue(async () => {
+    if (!pending.length) return;
+    if (!getToken()) { render(); return; }
+    try { syncState = ''; await pushPending(); render(); toast('GitHub에 저장했습니다 ☁✓'); }
+    catch (e) { syncState = 'err'; render(); toast(e.message); }
+  });
+}
+function markPending(keys) {
+  keys.forEach(k => { if (!pending.includes(k)) pending.push(k); });
+  savePending(); render(); syncNow();
+}
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
 function cacheKey() { return CACHE_KEY + (getToken() ? '_auth' : ''); }
 
@@ -234,6 +308,7 @@ async function fetchAll() {
 
 async function load(force) {
   const btn = $('refresh');
+  pullNotes();
   try {
     if (!force) {
       try {
@@ -270,7 +345,7 @@ function render() {
     const k = sort === 'created' ? 'created_at' : 'pushed_at';
     return new Date(b[k]) - new Date(a[k]);
   });
-  $('meta').textContent = `전체 ${repos.length}개` + (list.length !== repos.length ? ` · 표시 ${list.length}개` : '') + (getToken() ? ' · 🔑' : '');
+  $('meta').textContent = `전체 ${repos.length}개` + (list.length !== repos.length ? ` · 표시 ${list.length}개` : '') + (getToken() ? ' · 🔑' : '') + syncLabel();
   $('list').innerHTML = list.length ? list.map(r => {
     const p = pagesUrl(r), ko = koName(r), memo = memoOf(r);
     return `<div class="card">
@@ -306,7 +381,9 @@ function saveEdit() {
   const key = editName.toLowerCase();
   const ko = $('ed-ko').value.trim(), memo = $('ed-memo').value.trim();
   if (ko || memo) notes[key] = { ko, memo }; else delete notes[key];
-  saveNotes(); closeSheet('bg-edit'); render(); toast('주석을 저장했습니다');
+  saveNotes(); closeSheet('bg-edit'); render();
+  if (!getToken()) toast('이 기기에만 저장했습니다 (토큰을 등록하면 GitHub에도 저장)');
+  markPending([key]);
 }
 
 /* ---------- 삭제 ---------- */
@@ -330,8 +407,10 @@ async function doDelete() {
       throw new Error('삭제 실패 (' + res.status + ')' + (m ? ' ' + m : ''));
     }
     repos = repos.filter(x => x.name !== delName);
-    delete notes[delName.toLowerCase()]; saveNotes(); saveCache();
+    const dk = delName.toLowerCase(), had = !!notes[dk];
+    delete notes[dk]; saveNotes(); saveCache();
     closeSheet('bg-del'); render(); toast(delName + ' 삭제 완료');
+    if (had) markPending([dk]);
   } catch (e) {
     const el = $('del-err'); el.textContent = e.message; el.hidden = false;
   } finally { go.textContent = '삭제'; go.disabled = $('del-in').value !== delName; }
@@ -367,9 +446,10 @@ function importNotes() {
   try {
     const o = JSON.parse($('io').value);
     if (!o || typeof o !== 'object' || Array.isArray(o)) throw 0;
-    let n = 0;
-    for (const [k, v] of Object.entries(o)) if (v && typeof v === 'object') { notes[k.toLowerCase()] = { ko: String(v.ko || ''), memo: String(v.memo || '') }; n++; }
+    let n = 0; const ks = [];
+    for (const [k, v] of Object.entries(o)) if (v && typeof v === 'object') { notes[k.toLowerCase()] = { ko: String(v.ko || ''), memo: String(v.memo || '') }; ks.push(k.toLowerCase()); n++; }
     saveNotes(); render(); toast(n + '개 주석을 가져왔습니다');
+    if (ks.length) markPending(ks);
   } catch (e) { toast('올바른 JSON이 아닙니다'); }
 }
 
