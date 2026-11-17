@@ -47,6 +47,7 @@
   .tools button{flex:1;min-height:40px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--sub);font-size:13px}
   .tools button.del{color:var(--danger)}
   .tools button:active{opacity:.7}
+  .ver{text-align:center;color:var(--sub);font-size:12px;padding:0 16px calc(28px + env(safe-area-inset-bottom))}
   .msg{text-align:center;color:var(--sub);padding:32px 8px;font-size:14px}
 
   /* 하단 시트 */
@@ -91,6 +92,7 @@
   </div>
 </header>
 <main id="list"></main>
+<div class="ver" id="ver"></div>
 
 <!-- 한글 주석 편집 -->
 <div class="bg" id="bg-edit">
@@ -152,12 +154,15 @@
       <button id="io-in">가져오기</button>
     </div>
     <div class="row"><button id="set-close">닫기</button></div>
+    <div class="hint" style="text-align:center" id="set-ver"></div>
   </div>
 </div>
 
 <div id="toast"></div>
 
 <script>
+// 버전: 기능을 바꿀 때마다 올립니다. (1.0 최초 / 1.1 GitHub 주석 동기화 / 1.2 대기 표시 수정·버전 표시)
+const APP_VERSION = '1.2.0', APP_DATE = '2026-11-17';
 const USER = 'dtrjeon';
 const CACHE_KEY = 'repos_' + USER;
 const NOTE_KEY = 'notes_' + USER;
@@ -423,7 +428,7 @@ function tokenState() {
   const t = getToken();
   $('tk-state').textContent = t ? `✓ 토큰 저장됨 (…${t.slice(-4)})` : '토큰이 없습니다. 삭제 기능을 쓰려면 등록하세요.';
 }
-function openSettings() { $('tk').value = ''; $('io').value = ''; tokenState(); openSheet('bg-set'); }
+function openSettings() { $('set-ver').textContent = `저장소 허브 v${APP_VERSION} (${APP_DATE})`; $('tk').value = ''; $('io').value = ''; tokenState(); openSheet('bg-set'); }
 async function saveToken() {
   const t = $('tk').value.trim(); if (!t) { toast('토큰을 입력하세요'); return; }
   $('tk-state').textContent = '확인 중…';
@@ -487,6 +492,7 @@ $('io-out').addEventListener('click', exportNotes);
 $('io-in').addEventListener('click', importNotes);
 $('set-close').addEventListener('click', () => closeSheet('bg-set'));
 
+$('ver').textContent = `버전 v${APP_VERSION} · ${APP_DATE}`;
 load(false);
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
