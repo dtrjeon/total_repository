@@ -1,4 +1,8 @@
 {
+ "survey": {
+  "ko": "단계별 사역평가표",
+  "memo": ""
+ },
  "total_repository": {
   "ko": "저장소_리스트",
   "memo": ""
