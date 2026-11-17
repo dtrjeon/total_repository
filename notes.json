@@ -3,6 +3,10 @@
   "ko": "단계별 사역평가표",
   "memo": ""
  },
+ "survey_results": {
+  "ko": "사역평가표 결과 정리",
+  "memo": ""
+ },
  "total_repository": {
   "ko": "저장소_리스트",
   "memo": ""
