@@ -1,5 +1,5 @@
 // 저장소 허브 서비스워커 - 앱 화면(셸)만 캐시하고, GitHub API와 다른 페이지 요청은 건드리지 않습니다.
-const CACHE = 'repo-hub-v2';
+const CACHE = 'repo-hub-v3';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon.svg'];
 const SHELL_URLS = SHELL.map(p => new URL(p, self.location).href);
